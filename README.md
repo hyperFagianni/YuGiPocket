@@ -4,19 +4,28 @@ Simulatore di apertura buste Yu-Gi-Oh!, gratuito e non monetizzato. Progetto ama
 (vedi la schermata Info nell'app).
 
 Realizzato con Expo (managed workflow) + React Native + TypeScript + Expo Router, database locale con
-`expo-sqlite`, cache immagini con `expo-file-system`, scambio carte via QR con `expo-camera` /
-`react-native-qrcode-svg`.
+`expo-sqlite`, cache immagini con `expo-file-system`, bustine renderizzate in 3D con `expo-gl`/`three.js`,
+scambio carte via QR con `expo-camera`/`react-native-qrcode-svg` più una bacheca di scambio online opzionale
+su Firebase (Firestore + Anonymous Auth).
 
 ## Vincoli rispettati
 
 - **Nessun acquisto in-app, nessuna pubblicità, nessun abbonamento.** Nessuna dipendenza è stata aggiunta per
   monetizzazione o tracking pubblicitario (verificabile: `package.json` non contiene SDK di ads/IAP/analytics).
-- **Offline-first.** L'unica chiamata di rete è verso l'API pubblica di [YGOPRODeck](https://db.ygoprodeck.com/api-guide/)
-  per popolare la cache locale la prima volta che serve un'espansione — non ad ogni apertura busta. Dopo il primo
-  download, l'app funziona interamente offline.
+  Anche la bacheca online (sezione dedicata più sotto) usa solo il piano gratuito (Spark) di Firebase, senza
+  account a pagamento né dati raccolti oltre a un nickname scelto dall'utente.
+- **Offline-first, con un'unica eccezione dichiarata.** Le chiamate di rete sono: l'API pubblica di
+  [YGOPRODeck](https://db.ygoprodeck.com/api-guide/) per popolare la cache locale la prima volta che serve
+  un'espansione (non ad ogni apertura busta), e — solo se configurata — la bacheca di scambio online, l'unica
+  funzione che richiede davvero una connessione continua per esistere (deve mostrare annunci di altri utenti in
+  tempo reale). Senza configurare Firebase, quella schermata mostra semplicemente un messaggio ed è disattivata:
+  il resto dell'app (apertura buste, collezione, scambio via QR in presenza) resta interamente offline dopo il
+  primo download.
 - **Immagini mai in hotlink.** Ogni immagine carta viene scaricata una sola volta con `expo-file-system` e salvata
   in `Paths.document/card-images/`; da lì in poi viene sempre mostrato il file locale (vedi `src/services/imageCache.ts`
   e `src/components/CardImage.tsx`), come richiesto dalle policy di YGOPRODeck contro l'hotlink continuo del loro CDN.
+  Le immagini delle bustine (`assets/packs/`) sono illustrazioni originali create per questo progetto, non copie
+  delle box reali Konami (vedi `assets/packs/LICENSE-NOTE.md`).
 - **Nessun pull rate spacciato per ufficiale.** Konami non pubblica percentuali reali; le stime usate sono descritte
   in dettaglio, con fonti, nella schermata Info e in `src/data/sets/*.ts`.
 
@@ -98,37 +107,73 @@ avvio via API, senza bisogno di compilare a mano liste di carte.
 
 ## Limiti noti dello scambio tra amici
 
-Lo scambio è **completamente locale**, senza server né identità condivisa tra dispositivi:
+Ci sono due modalità di scambio, entrambe **a fiducia**: nessuna delle due può verificare o forzare l'onestà
+dell'altra persona.
 
-1. Chi propone lo scambio genera un codice/QR (schermata "Crea proposta di scambio") con la carta offerta e,
-   opzionalmente, quella richiesta in cambio.
-2. L'altra persona scansiona il QR o incolla il codice testuale (schermata "Accetta una proposta"), vede
-   un'anteprima e conferma.
-3. **Non esiste alcuna verifica reciproca automatica.** Quando l'accettante conferma, il suo dispositivo aggiorna
-   subito la propria collezione (aggiunge la carta offerta, rimuove quella eventualmente richiesta). Chi ha
-   proposto lo scambio deve poi, separatamente e sul proprio dispositivo, premere "Segna scambio come completato"
-   nella schermata dove ha generato il codice, per aggiornare anche la propria collezione allo stesso modo.
-4. Se una delle due persone non conferma onestamente (es. accetta la carta ma non segna lo scambio come completato
-   dal lato di chi la offre), le due collezioni finiscono disallineate — l'app non ha modo di rilevarlo o
-   impedirlo. È un sistema basato sulla fiducia tra amici, non una transazione garantita, ed è dichiarato
-   esplicitamente nell'interfaccia della schermata Scambio.
-5. Se il codice fa riferimento a una carta di un'espansione non ancora scaricata sul dispositivo che accetta, lo
+### Scambio via QR (in presenza)
+
+Pensato per uno scambio negoziato di persona — l'app non serve a decidere cosa si riceve in cambio, solo a
+trasferire formalmente le carte cedute:
+
+1. Chi cede le carte le seleziona (una o più) nella schermata "Cedi carte via QR" e genera un codice/QR.
+2. L'altra persona scansiona il QR o incolla il codice testuale ("Ricevi carte"), vede un'anteprima di tutte le
+   carte e conferma: il suo dispositivo le aggiunge subito alla propria collezione.
+3. Chi ha generato il codice deve poi, separatamente sul proprio dispositivo, premere "Segna scambio come
+   completato" per togliere quelle carte dalla propria collezione. **Non esiste alcuna verifica reciproca
+   automatica** — se una delle due persone non conferma onestamente, le collezioni finiscono disallineate.
+4. Se il codice fa riferimento a una carta di un'espansione non ancora scaricata sul dispositivo che accetta, lo
    scambio viene bloccato con un messaggio esplicito invece di essere accettato "alla cieca".
+
+### Bacheca di scambio online (opzionale, richiede Firebase)
+
+Per scambiare con persone non presenti fisicamente: un utente pubblica un annuncio con le carte che offre e,
+opzionalmente, quelle che cerca (una carta specifica o "qualsiasi carta" di un'espansione); altri utenti vedono
+la bacheca e possono accettare proponendo le proprie carte in cambio.
+
+- **Identità minima e anonima**: solo un nickname scelto una tantum, nessuna email/password (Firebase Anonymous
+  Auth). Il nickname è pubblico, visibile a chiunque usi la bacheca — è salvato solo localmente sul dispositivo
+  e allegato ai singoli annunci quando li crei o li accetti, non esiste una lista pubblica di utenti.
+- **Il server sincronizza solo stato e scoperta degli annunci**, non l'onestà dello scambio: quando entrambe le
+  parti premono "Conferma completamento" (ciascuna sul proprio dispositivo, in autonomia), le rispettive
+  collezioni locali si aggiornano — esattamente come nel flusso QR. Non c'è modo di forzare che l'altra parte
+  confermi davvero.
+- **Setup richiesto** (gratuito, ~5 minuti):
+  1. Crea un progetto su [console.firebase.google.com](https://console.firebase.google.com) (piano Spark, gratuito).
+  2. Aggiungi una "Web app" al progetto (icona `</>` nella pagina principale) — non serve creare app iOS/Android
+     separate, il SDK JS web funziona anche dentro Expo Go.
+  3. In *Build → Authentication → Sign-in method*, abilita il provider **Anonymo** (disattivato di default).
+  4. In *Build → Firestore Database*, crea un database (modalità produzione), poi in *Regole* incolla il
+     contenuto di `firebase/firestore.rules` e pubblica.
+  5. Copia `.env.example` in `.env` e compila le variabili `EXPO_PUBLIC_FIREBASE_*` con i valori mostrati nella
+     configurazione della Web app (*Project settings → General → Your apps*).
+  6. Rilancia con `npx expo start -c` (il flag pulisce la cache così le variabili d'ambiente vengono ricaricate).
+- Senza questo setup, la tab "Bacheca online" mostra semplicemente un avviso: il resto dell'app funziona
+  normalmente.
+- **Nota tecnica**: `metro.config.js` disattiva la risoluzione `package.json:exports` di Metro, necessaria per
+  far funzionare correttamente il SDK Firebase su Expo SDK 54 (bug noto, [expo/expo#36588](https://github.com/expo/expo/issues/36588)).
+  Se in futuro aggiorni Expo/Firebase e l'errore "Component auth has not been registered yet" non si presenta più,
+  questo file potrebbe non essere più necessario.
 
 ## Struttura del progetto
 
 ```
 src/
-  app/                  Schermate (Expo Router: file-based routing)
-  components/           Componenti UI condivisi (CardImage, RarityBadge, ...)
-  constants/             Tema colori/spaziature
+  app/                  Schermate (Expo Router: file-based routing), incluse trade-board* per la bacheca online
+  components/           Componenti UI condivisi (CardImage, RarityBadge, FoilShine, Pack3D/, ...)
+  constants/             Tema colori/spaziature/raggi, font (Cinzel/Baloo 2)
   context/               AppDataProvider: inizializzazione DB + seeding al primo avvio
-  data/                  Rarità e configurazione delle espansioni (fonti e pull rate)
+  data/                  Rarità, configurazione espansioni (fonti e pull rate), temi grafici bustine
   db/                    Schema SQLite, client, repository (cards, collection, config)
   hooks/                 useCooldown, useCollection
   services/              Logica pura testabile: apertura buste, cooldown, codice di scambio,
-                         fetch/normalizzazione dati YGOPRODeck, cache immagini
+                         fetch/normalizzazione dati YGOPRODeck, cache immagini, client/servizi Firebase
   types/                 Tipi di dominio condivisi
+assets/
+  fonts/                Cinzel + Baloo 2 (Google Fonts, licenza SIL OFL — vedi LICENSE-NOTE.md)
+  packs/                Illustrazioni originali delle bustine per le viste 3D/2D — vedi LICENSE-NOTE.md
+firebase/
+  firestore.rules       Regole di sicurezza per la bacheca di scambio online
+metro.config.js          Fix di risoluzione moduli richiesto dal SDK Firebase (vedi sezione bacheca online)
 __tests__/               Test Jest sulla logica pura (nessuna dipendenza da React Native/SQLite)
 ```
 

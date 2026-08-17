@@ -1,17 +1,29 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { CardImage } from '@/components/CardImage';
+import { FoilShine } from '@/components/FoilShine';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { RarityBadge } from '@/components/RarityBadge';
+import { RarityRevealEffect } from '@/components/RarityRevealEffect';
 import { ScreenContainer } from '@/components/ScreenContainer';
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SET_CONFIG_BY_ID } from '@/data/sets';
 import { getCardPoolByRarityForSet, getCardsByIds } from '@/db/repositories/cardsRepo';
 import { addCardToCollection } from '@/db/repositories/collectionRepo';
 import { openPack } from '@/services/packOpening';
 import type { PulledCard } from '@/types/domain';
+
+const FLIP_OUT_MS = 220;
+const FLIP_IN_MS = 420;
 
 export default function OpeningScreen() {
   const { setId } = useLocalSearchParams<{ setId: string }>();
@@ -22,9 +34,9 @@ export default function OpeningScreen() {
   const [pulledCards, setPulledCards] = useState<PulledCard[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+  const rotateY = useSharedValue(90);
 
   useEffect(() => {
     if (!config) {
@@ -65,26 +77,32 @@ export default function OpeningScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Ogni volta che la carta corrente cambia (compreso il mount iniziale), la carta si "gira"
+  // direttamente a faccia in su: nessun dorso/placeholder intermedio da mostrare.
   useEffect(() => {
     if (status !== 'ready') return;
-    fadeAnim.setValue(0);
-    scaleAnim.setValue(0.85);
     setRevealed(false);
-  }, [currentIndex, status, fadeAnim, scaleAnim]);
+    rotateY.value = withTiming(0, { duration: FLIP_IN_MS }, (finished) => {
+      if (finished) runOnJS(setRevealed)(true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, status]);
 
-  function handleReveal() {
-    if (revealed) {
-      if (currentIndex < pulledCards.length - 1) {
-        setCurrentIndex((i) => i + 1);
+  function handleAdvance() {
+    if (!revealed || transitioning) return;
+    if (currentIndex >= pulledCards.length - 1) return;
+    setTransitioning(true);
+    rotateY.value = withTiming(90, { duration: FLIP_OUT_MS }, (finished) => {
+      if (finished) {
+        runOnJS(setCurrentIndex)((i) => i + 1);
+        runOnJS(setTransitioning)(false);
       }
-      return;
-    }
-    setRevealed(true);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6 }),
-    ]).start();
+    });
   }
+
+  const flipStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 1000 }, { rotateY: `${rotateY.value}deg` }],
+  }));
 
   if (status === 'loading') {
     return (
@@ -119,23 +137,27 @@ export default function OpeningScreen() {
         <Text style={styles.setName}>{config?.displayName}</Text>
       </View>
 
-      <Pressable style={styles.cardArea} onPress={handleReveal}>
-        {revealed ? (
-          <Animated.View style={[styles.revealedCard, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
-            <CardImage cardId={current.card.id} remoteUrl={current.card.imageUrl} style={styles.cardImage} />
-            <Text style={styles.cardName}>{current.card.name}</Text>
-            <RarityBadge rarity={current.rarity} />
-          </Animated.View>
-        ) : (
-          <View style={styles.cardBack}>
-            <Text style={styles.cardBackLabel}>YuGiPocket</Text>
-            <Text style={styles.tapHint}>Tocca per rivelare</Text>
+      <Pressable style={styles.cardArea} onPress={handleAdvance}>
+        <Animated.View style={[styles.revealedCard, flipStyle]}>
+          <View style={styles.cardImageBox}>
+            <FoilShine rarity={current.rarity}>
+              <CardImage cardId={current.card.id} remoteUrl={current.card.imageUrl} style={styles.cardImage} />
+            </FoilShine>
+            {revealed && current.rarity !== 'common' && (
+              <View style={styles.effectOverlay} pointerEvents="none">
+                <RarityRevealEffect rarity={current.rarity} />
+              </View>
+            )}
           </View>
-        )}
+          <Text variant="heading" style={styles.cardName}>
+            {current.card.name}
+          </Text>
+          <RarityBadge rarity={current.rarity} />
+        </Animated.View>
       </Pressable>
 
       <View style={styles.footer}>
-        {revealed && !isLast && <PrimaryButton label="Prossima carta" onPress={handleReveal} />}
+        {revealed && !isLast && <Text style={styles.tapHint}>Tocca la carta per continuare</Text>}
         {revealed && isLast && <PrimaryButton label="Vai alla collezione" onPress={() => router.replace('/collection')} />}
       </View>
     </ScreenContainer>
@@ -178,9 +200,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.md,
   },
-  cardImage: {
+  cardImageBox: {
     width: 220,
     height: 320,
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: Radius.md,
+  },
+  effectOverlay: {
+    ...StyleSheet.absoluteFillObject,
     borderRadius: Radius.md,
   },
   cardName: {
@@ -190,27 +220,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: Spacing.lg,
   },
-  cardBack: {
-    width: 220,
-    height: 320,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surfaceElevated,
-    borderWidth: 2,
-    borderColor: Colors.primary,
+  footer: {
+    marginBottom: Spacing.xl,
     alignItems: 'center',
+    minHeight: 52,
     justifyContent: 'center',
-    gap: Spacing.sm,
-  },
-  cardBackLabel: {
-    color: Colors.primary,
-    fontSize: 20,
-    fontWeight: '800',
   },
   tapHint: {
     color: Colors.textMuted,
-    fontSize: 12,
-  },
-  footer: {
-    marginBottom: Spacing.xl,
+    fontSize: 13,
   },
 });

@@ -43,4 +43,5 @@ export const CONFIG_KEYS = {
   lastPackOpenedAt: 'lastPackOpenedAt',
   ygoDbVersion: 'ygoDbVersion',
   seededSetIds: 'seededSetIds',
+  tradeBoardNickname: 'tradeBoardNickname',
 } as const;

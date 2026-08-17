@@ -1,7 +1,8 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { ScreenContainer } from '@/components/ScreenContainer';
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SET_CONFIGS } from '@/data/sets';
 
@@ -9,7 +10,9 @@ export default function AboutScreen() {
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Info su YuGiPocket</Text>
+        <Text variant="heading" style={styles.title}>
+          Info su YuGiPocket
+        </Text>
 
         <View style={styles.box}>
           <Text style={styles.boxTitle}>Non affiliato con Konami</Text>

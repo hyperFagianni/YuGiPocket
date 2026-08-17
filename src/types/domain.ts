@@ -82,9 +82,35 @@ export interface TradeCardRef {
 }
 
 export interface TradeOfferPayload {
-  v: 1;
-  offer: TradeCardRef;
-  request: TradeCardRef | null;
+  v: 2;
+  /** Carte cedute dal proponente, in presenza — una o più, l'altra carta si negozia di persona. */
+  offer: TradeCardRef[];
+  note: string;
+  createdAt: number;
+}
+
+/** Riferimento a una carta richiesta in un annuncio della bacheca online: `cardId`/`rarity` nulli
+ * significano "qualsiasi carta di questo set", non necessariamente una specifica. */
+export interface TradeListingCardRef {
+  cardId: number | null;
+  cardName: string | null;
+  setId: string;
+  rarity: RarityTier | null;
+}
+
+export type TradeListingStatus = 'open' | 'accepted' | 'completed' | 'cancelled';
+
+export interface TradeListing {
+  id: string;
+  ownerId: string;
+  ownerNickname: string;
+  status: TradeListingStatus;
+  offeredCards: TradeCardRef[];
+  requestedCards: TradeListingCardRef[];
+  counterCards: TradeCardRef[];
+  acceptedBy: string | null;
+  confirmedByOwner: boolean;
+  confirmedByAccepter: boolean;
   note: string;
   createdAt: number;
 }

@@ -1,6 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 
 interface Props {
@@ -14,22 +16,31 @@ interface Props {
 export function PrimaryButton({ label, onPress, disabled, loading, variant = 'primary' }: Props) {
   const isPrimary = variant === 'primary';
   const isInactive = Boolean(disabled) || Boolean(loading);
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={isInactive}
-      style={({ pressed }) => [
-        styles.button,
-        isPrimary ? styles.primary : styles.secondary,
-        isInactive && styles.disabled,
-        pressed && !isInactive && styles.pressed,
-      ]}>
-      {loading ? (
-        <ActivityIndicator color={isPrimary ? Colors.primaryText : Colors.primary} />
-      ) : (
-        <Text style={[styles.label, isPrimary ? styles.primaryLabel : styles.secondaryLabel]}>{label}</Text>
-      )}
-    </Pressable>
+    <Animated.View style={animatedStyle}>
+      <Pressable
+        onPress={onPress}
+        disabled={isInactive}
+        onPressIn={() => {
+          if (!isInactive) scale.value = withSpring(0.94, { damping: 12, stiffness: 300 });
+        }}
+        onPressOut={() => {
+          scale.value = withSpring(1, { damping: 8, stiffness: 250 });
+        }}
+        style={[styles.button, isPrimary ? styles.primary : styles.secondary, isInactive && styles.disabled]}>
+        {loading ? (
+          <ActivityIndicator color={isPrimary ? Colors.primaryText : Colors.primary} />
+        ) : (
+          <Text style={[styles.label, isPrimary ? styles.primaryLabel : styles.secondaryLabel]}>{label}</Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -52,9 +63,6 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.5,
-  },
-  pressed: {
-    opacity: 0.85,
   },
   label: {
     fontSize: 16,

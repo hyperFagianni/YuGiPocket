@@ -1,9 +1,10 @@
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
 import { CardTile } from '@/components/CardTile';
 import { ScreenContainer } from '@/components/ScreenContainer';
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { RARITY_LABELS, RARITY_ORDER } from '@/data/rarity';
 import { SET_CONFIG_BY_ID, SET_CONFIGS } from '@/data/sets';
@@ -37,7 +38,9 @@ export default function CollectionScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Collezione</Text>
+      <Text variant="heading" style={styles.title}>
+        Collezione
+      </Text>
 
       <View style={styles.setChipRow}>
         {SET_CONFIGS.map((s) => {

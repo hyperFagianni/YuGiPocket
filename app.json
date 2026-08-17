@@ -20,7 +20,10 @@
         "CAMERA"
       ]
     },
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "plugins": [
       "expo-router",
       "expo-sqlite",
@@ -35,10 +38,11 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#141414",
+          "backgroundColor": "#FBF3E3",
           "resizeMode": "contain"
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

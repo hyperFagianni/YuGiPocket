@@ -1,28 +1,38 @@
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { Text } from '@/components/Text';
 import { Colors, Spacing } from '@/constants/theme';
+import { FontAssets, Fonts } from '@/constants/fonts';
 import { AppDataProvider, useAppData } from '@/context/AppDataProvider';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootNavigator() {
   const { status, fatalError, retry } = useAppData();
+  const [fontsLoaded] = useFonts(FontAssets);
 
   useEffect(() => {
-    if (status !== 'initializing') {
+    if (status !== 'initializing' && fontsLoaded) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [status]);
+  }, [status, fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   if (status === 'error') {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorTitle}>Errore di avvio</Text>
+        <Text variant="heading" style={styles.errorTitle}>
+          Errore di avvio
+        </Text>
         <Text style={styles.errorBody}>{fatalError}</Text>
         <Text style={styles.retry} onPress={retry}>
           Riprova
@@ -45,6 +55,7 @@ function RootNavigator() {
       screenOptions={{
         headerStyle: { backgroundColor: Colors.background },
         headerTintColor: Colors.text,
+        headerTitleStyle: { fontFamily: Fonts.heading },
         headerShadowVisible: false,
         contentStyle: { backgroundColor: Colors.background },
       }}>
@@ -52,6 +63,10 @@ function RootNavigator() {
       <Stack.Screen name="opening" options={{ presentation: 'modal', headerShown: false }} />
       <Stack.Screen name="trade-create" options={{ title: 'Crea proposta di scambio' }} />
       <Stack.Screen name="trade-accept" options={{ title: 'Accetta proposta di scambio' }} />
+      <Stack.Screen name="trade-board" options={{ title: 'Bacheca online' }} />
+      <Stack.Screen name="trade-board-create" options={{ title: 'Nuovo annuncio' }} />
+      <Stack.Screen name="trade-board/[id]" options={{ title: 'Dettaglio annuncio' }} />
+      <Stack.Screen name="nickname-setup" options={{ title: 'Il tuo nome', presentation: 'modal' }} />
     </Stack>
   );
 }

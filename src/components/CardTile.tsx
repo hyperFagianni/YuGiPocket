@@ -1,6 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { FoilShine } from '@/components/FoilShine';
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import type { CollectionCardView } from '@/types/domain';
 import { CardImage } from './CardImage';
@@ -11,12 +13,14 @@ export function CardTile({ item }: { item: CollectionCardView }) {
   return (
     <View style={[styles.tile, !owned && styles.unowned]}>
       <View style={styles.imageWrapper}>
-        <CardImage cardId={item.id} remoteUrl={item.imageUrlSmall} style={styles.image} />
-        {owned && (
-          <View style={styles.quantityBadge}>
-            <Text style={styles.quantityText}>x{item.quantity}</Text>
-          </View>
-        )}
+        <FoilShine rarity={item.rarity}>
+          <CardImage cardId={item.id} remoteUrl={item.imageUrlSmall} style={styles.image} />
+          {owned && (
+            <View style={styles.quantityBadge}>
+              <Text style={styles.quantityText}>x{item.quantity}</Text>
+            </View>
+          )}
+        </FoilShine>
       </View>
       <Text style={styles.name} numberOfLines={2}>
         {item.name}

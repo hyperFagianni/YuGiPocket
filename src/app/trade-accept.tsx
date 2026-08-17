@@ -2,18 +2,20 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 
 import { CardImage } from '@/components/CardImage';
+import { FoilShine } from '@/components/FoilShine';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { RARITY_LABELS } from '@/data/rarity';
 import { SET_CONFIG_BY_ID } from '@/data/sets';
 import { getCardById } from '@/db/repositories/cardsRepo';
-import { addCardToCollection, removeOneFromCollection } from '@/db/repositories/collectionRepo';
+import { addCardToCollection } from '@/db/repositories/collectionRepo';
 import { decodeTradeOffer } from '@/services/tradeCode';
-import type { CardRecord, TradeOfferPayload } from '@/types/domain';
+import type { CardRecord, TradeCardRef, TradeOfferPayload } from '@/types/domain';
 
 export default function TradeAcceptScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -23,22 +25,17 @@ export default function TradeAcceptScreen() {
   const [decodeError, setDecodeError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
-  const [offerCard, setOfferCard] = useState<CardRecord | null | undefined>(undefined);
-  const [requestCard, setRequestCard] = useState<CardRecord | null | undefined>(undefined);
+  const [offerCards, setOfferCards] = useState<Map<number, CardRecord | null> | null>(null);
 
   useEffect(() => {
     if (!payload) return;
     let cancelled = false;
-    getCardById(payload.offer.cardId).then((card) => {
-      if (!cancelled) setOfferCard(card);
-    });
-    if (payload.request) {
-      getCardById(payload.request.cardId).then((card) => {
-        if (!cancelled) setRequestCard(card);
-      });
-    } else {
-      setRequestCard(null);
-    }
+    (async () => {
+      const entries = await Promise.all(
+        payload.offer.map(async (ref) => [ref.cardId, await getCardById(ref.cardId)] as const),
+      );
+      if (!cancelled) setOfferCards(new Map(entries));
+    })();
     return () => {
       cancelled = true;
     };
@@ -52,8 +49,7 @@ export default function TradeAcceptScreen() {
       return;
     }
     setDecodeError(null);
-    setOfferCard(undefined);
-    setRequestCard(undefined);
+    setOfferCards(null);
     setConfirmed(false);
     setPayload(parsed);
     setScannerActive(false);
@@ -65,14 +61,14 @@ export default function TradeAcceptScreen() {
     tryDecode(text);
   }
 
-  const cardsResolved = offerCard !== undefined && requestCard !== undefined;
-  const cardsRecognized = cardsResolved && offerCard !== null && (payload?.request === null || requestCard !== null);
+  const cardsResolved = offerCards !== null;
+  const cardsRecognized = cardsResolved && payload!.offer.every((ref) => offerCards!.get(ref.cardId));
 
   async function handleConfirm() {
     if (!payload || !cardsRecognized) return;
-    await addCardToCollection(payload.offer.cardId, payload.offer.setId, payload.offer.rarity, Date.now());
-    if (payload.request) {
-      await removeOneFromCollection(payload.request.cardId, payload.request.setId);
+    const now = Date.now();
+    for (const ref of payload.offer) {
+      await addCardToCollection(ref.cardId, ref.setId, ref.rarity, now);
     }
     setConfirmed(true);
   }
@@ -83,65 +79,52 @@ export default function TradeAcceptScreen() {
     setDecodeError(null);
   }
 
-  if (payload) {
-    const offerSet = SET_CONFIG_BY_ID[payload.offer.setId];
-    const requestSet = payload.request ? SET_CONFIG_BY_ID[payload.request.setId] : null;
+  function refLabel(ref: TradeCardRef) {
+    const set = SET_CONFIG_BY_ID[ref.setId];
+    return `${RARITY_LABELS[ref.rarity]} · ${set?.displayName ?? ref.setId}`;
+  }
 
+  if (payload) {
     return (
       <ScreenContainer>
-        <Text style={styles.title}>Riepilogo scambio</Text>
+        <Text variant="heading" style={styles.title}>
+          Riepilogo scambio
+        </Text>
 
-        <View style={styles.cardPreview}>
-          <Text style={styles.previewLabel}>Ricevi</Text>
-          <View style={styles.previewRow}>
-            {offerCard ? (
-              <CardImage cardId={offerCard.id} remoteUrl={offerCard.imageUrlSmall} style={styles.previewImage} />
-            ) : (
-              <View style={[styles.previewImage, styles.previewImagePlaceholder]} />
-            )}
-            <View style={styles.previewText}>
-              <Text style={styles.cardName}>{payload.offer.cardName}</Text>
-              <Text style={styles.cardMeta}>
-                {RARITY_LABELS[payload.offer.rarity]} · {offerSet?.displayName ?? payload.offer.setId}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {payload.request ? (
-          <View style={styles.cardPreview}>
-            <Text style={styles.previewLabel}>Dai in cambio</Text>
-            <View style={styles.previewRow}>
-              {requestCard ? (
-                <CardImage cardId={requestCard.id} remoteUrl={requestCard.imageUrlSmall} style={styles.previewImage} />
-              ) : (
-                <View style={[styles.previewImage, styles.previewImagePlaceholder]} />
-              )}
-              <View style={styles.previewText}>
-                <Text style={styles.cardName}>{payload.request.cardName}</Text>
-                <Text style={styles.cardMeta}>
-                  {RARITY_LABELS[payload.request.rarity]} · {requestSet?.displayName ?? payload.request.setId}
-                </Text>
+        <Text style={styles.previewLabel}>
+          {payload.offer.length > 1 ? `Ricevi queste ${payload.offer.length} carte` : 'Ricevi questa carta'}
+        </Text>
+        {payload.offer.map((ref) => {
+          const card = offerCards?.get(ref.cardId);
+          return (
+            <View key={`${ref.cardId}-${ref.setId}`} style={styles.cardPreview}>
+              <View style={styles.previewRow}>
+                <View style={styles.previewImageBox}>
+                  {card ? (
+                    <FoilShine rarity={ref.rarity}>
+                      <CardImage cardId={card.id} remoteUrl={card.imageUrlSmall} style={styles.previewImage} />
+                    </FoilShine>
+                  ) : (
+                    <View style={[styles.previewImage, styles.previewImagePlaceholder]} />
+                  )}
+                </View>
+                <View style={styles.previewText}>
+                  <Text style={styles.cardName}>{ref.cardName}</Text>
+                  <Text style={styles.cardMeta}>{refLabel(ref)}</Text>
+                  {cardsResolved && !card && (
+                    <Text style={styles.errorText}>Carta non presente nel database locale di questo dispositivo.</Text>
+                  )}
+                </View>
               </View>
             </View>
-          </View>
-        ) : (
-          <Text style={styles.helperText}>Nessuna carta specifica richiesta in cambio.</Text>
-        )}
+          );
+        })}
 
         {payload.note ? <Text style={styles.note}>Nota: {payload.note}</Text> : null}
 
-        {cardsResolved && !cardsRecognized && (
-          <Text style={styles.errorText}>
-            Una delle carte di questo codice non è presente nel database locale di questo dispositivo (forse manca
-            ancora quell&apos;espansione). Non è possibile confermare lo scambio in modo sicuro.
-          </Text>
-        )}
-
         <Text style={styles.warning}>
-          Confermando, la tua collezione viene aggiornata subito su questo dispositivo. Non c&apos;è nessun controllo
-          automatico che l&apos;altra persona abbia davvero ricevuto la carta richiesta: fallo solo se ti fidi e lo
-          scambio è già avvenuto davvero.
+          Confermando, la tua collezione viene aggiornata subito su questo dispositivo. Fallo solo se ti fidi e lo
+          scambio è già avvenuto davvero di persona.
         </Text>
 
         {confirmed ? (
@@ -164,7 +147,9 @@ export default function TradeAcceptScreen() {
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Accetta una proposta</Text>
+      <Text variant="heading" style={styles.title}>
+        Accetta una proposta
+      </Text>
 
       {scannerActive ? (
         permission?.granted ? (
@@ -186,7 +171,9 @@ export default function TradeAcceptScreen() {
         <PrimaryButton label="Scansiona QR" onPress={() => setScannerActive(true)} />
       )}
 
-      <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Oppure incolla il codice</Text>
+      <Text variant="heading" style={[styles.sectionTitle, styles.sectionSpacing]}>
+        Oppure incolla il codice
+      </Text>
       <TextInput
         placeholder="YGP1:..."
         placeholderTextColor={Colors.textMuted}
@@ -275,9 +262,13 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     alignItems: 'center',
   },
-  previewImage: {
+  previewImageBox: {
     width: 64,
     height: 93,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
     borderRadius: 6,
   },
   previewImagePlaceholder: {

@@ -1,0 +1,58 @@
+// Regole di sicurezza per la bacheca di scambio online di YuGiPocket.
+// Da incollare in Firebase Console -> Firestore Database -> Regole, poi "Pubblica".
+// Vedi README.md per la procedura completa di setup.
+//
+// Modello dati: ogni annuncio è un documento in "listings" con le carte offerte/richieste/di
+// controproposta incorporate come array (nessuna sub-collection). Il nickname del proprietario e
+// dell'accettante sono denormalizzati direttamente nel documento al momento della scrittura, così
+// non serve una collection "profiles" separata da interrogare.
+rules_version = '2';
+
+service cloud.firestore {
+  // "Sola questi campi sono cambiati rispetto alla versione precedente del documento" — usata per
+  // impedire che una transizione di stato alteri anche i campi che non le competono (es. che
+  // "accetta" possa toccare le carte offerte dal proprietario).
+  function onlyFieldsChanged(allowed) {
+    return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+  }
+
+  match /databases/{database}/documents {
+    match /listings/{listingId} {
+      allow read: if true;
+
+      // Creazione: solo per il proprio annuncio, sempre nello stato iniziale corretto.
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.acceptedBy == null
+        && request.resource.data.confirmedByOwner == false
+        && request.resource.data.confirmedByAccepter == false;
+
+      // Il proprietario annulla il proprio annuncio, solo mentre è ancora aperto.
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'cancelled'
+        && onlyFieldsChanged(['status', 'updatedAt']);
+
+      // Un altro utente accetta un annuncio aperto, proponendo le proprie carte in cambio.
+      allow update: if request.auth != null
+        && resource.data.status == 'open'
+        && request.auth.uid != resource.data.ownerId
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.acceptedBy == request.auth.uid
+        && onlyFieldsChanged(['status', 'acceptedBy', 'acceptedByNickname', 'counterCards', 'updatedAt']);
+
+      // Il proprietario e/o l'accettante confermano il completamento, ciascuno solo il proprio lato.
+      allow update: if request.auth != null
+        && resource.data.status == 'accepted'
+        && (request.auth.uid == resource.data.ownerId || request.auth.uid == resource.data.acceptedBy)
+        && (request.resource.data.status == 'accepted' || request.resource.data.status == 'completed')
+        && onlyFieldsChanged(['status', 'confirmedByOwner', 'confirmedByAccepter', 'updatedAt'])
+        && (request.auth.uid != resource.data.ownerId || request.resource.data.confirmedByOwner == true)
+        && (request.auth.uid != resource.data.acceptedBy || request.resource.data.confirmedByAccepter == true);
+
+      allow delete: if false;
+    }
+  }
+}

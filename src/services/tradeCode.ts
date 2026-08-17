@@ -49,13 +49,10 @@ function isValidTradeOfferPayload(value: unknown): value is TradeOfferPayload {
     return false;
   }
   const payload = value as Record<string, unknown>;
-  if (payload.v !== 1) {
+  if (payload.v !== 2) {
     return false;
   }
-  if (!isValidCardRef(payload.offer)) {
-    return false;
-  }
-  if (payload.request !== null && !isValidCardRef(payload.request)) {
+  if (!Array.isArray(payload.offer) || payload.offer.length === 0 || !payload.offer.every(isValidCardRef)) {
     return false;
   }
   if (typeof payload.note !== 'string') {

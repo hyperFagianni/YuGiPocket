@@ -1,27 +1,25 @@
 import * as Clipboard from 'expo-clipboard';
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
-import { CardImage } from '@/components/CardImage';
+import { MultiCardPicker } from '@/components/MultiCardPicker';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
+import { Text } from '@/components/Text';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { RARITY_LABELS } from '@/data/rarity';
-import { SET_CONFIGS } from '@/data/sets';
-import { getCardsForSet, type SetCardWithRarity } from '@/db/repositories/cardsRepo';
-import { addCardToCollection, getCollectionView, removeOneFromCollection } from '@/db/repositories/collectionRepo';
+import { getCollectionView, removeOneFromCollection } from '@/db/repositories/collectionRepo';
 import { encodeTradeOffer } from '@/services/tradeCode';
 import type { CollectionCardView, TradeOfferPayload } from '@/types/domain';
 
+function keyOf(item: CollectionCardView) {
+  return `${item.id}-${item.setId}`;
+}
+
 export default function TradeCreateScreen() {
   const [ownedCards, setOwnedCards] = useState<CollectionCardView[]>([]);
-  const [offer, setOffer] = useState<CollectionCardView | null>(null);
-
-  const [requestSetId, setRequestSetId] = useState(SET_CONFIGS[0].setId);
-  const [requestSetCards, setRequestSetCards] = useState<SetCardWithRarity[]>([]);
-  const [requestQuery, setRequestQuery] = useState('');
-  const [request, setRequest] = useState<SetCardWithRarity | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   const [note, setNote] = useState('');
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
@@ -32,25 +30,29 @@ export default function TradeCreateScreen() {
     getCollectionView({ onlyOwned: true }).then(setOwnedCards);
   }, []);
 
-  useEffect(() => {
-    setRequest(null);
-    getCardsForSet(requestSetId).then(setRequestSetCards);
-  }, [requestSetId]);
+  const selectedCards = useMemo(
+    () => ownedCards.filter((c) => selectedKeys.has(keyOf(c))),
+    [ownedCards, selectedKeys],
+  );
 
-  const filteredRequestCards = useMemo(() => {
-    const query = requestQuery.trim().toLowerCase();
-    if (!query) return requestSetCards;
-    return requestSetCards.filter((entry) => entry.card.name.toLowerCase().includes(query));
-  }, [requestSetCards, requestQuery]);
+  function toggleSelected(item: CollectionCardView) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      const key = keyOf(item);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
 
   function handleGenerate() {
-    if (!offer) return;
+    if (selectedCards.length === 0) return;
     const payload: TradeOfferPayload = {
-      v: 1,
-      offer: { cardId: offer.id, cardName: offer.name, setId: offer.setId, rarity: offer.rarity },
-      request: request
-        ? { cardId: request.card.id, cardName: request.card.name, setId: requestSetId, rarity: request.rarity }
-        : null,
+      v: 2,
+      offer: selectedCards.map((c) => ({ cardId: c.id, cardName: c.name, setId: c.setId, rarity: c.rarity })),
       note: note.trim(),
       createdAt: Date.now(),
     };
@@ -66,17 +68,15 @@ export default function TradeCreateScreen() {
 
   function handleReset() {
     setGeneratedCode(null);
-    setOffer(null);
-    setRequest(null);
+    setSelectedKeys(new Set());
     setNote('');
     setCompleted(false);
   }
 
   async function handleMarkCompleted() {
-    if (!offer || completed) return;
-    await removeOneFromCollection(offer.id, offer.setId);
-    if (request) {
-      await addCardToCollection(request.card.id, requestSetId, request.rarity, Date.now());
+    if (selectedCards.length === 0 || completed) return;
+    for (const card of selectedCards) {
+      await removeOneFromCollection(card.id, card.setId);
     }
     setCompleted(true);
   }
@@ -85,9 +85,12 @@ export default function TradeCreateScreen() {
     return (
       <ScreenContainer>
         <View style={styles.resultWrapper}>
-          <Text style={styles.sectionTitle}>Proposta pronta</Text>
+          <Text variant="heading" style={styles.sectionTitle}>
+            Proposta pronta
+          </Text>
           <Text style={styles.helperText}>
-            Fai scansionare questo QR all&apos;amico, oppure condividi il codice testuale copiandolo.
+            Fai scansionare questo QR all&apos;amico, oppure condividi il codice testuale copiandolo. Accordatevi di
+            persona su cosa ricevi in cambio.
           </Text>
           <View style={styles.qrBox}>
             <QRCode value={generatedCode} size={220} backgroundColor={Colors.surface} color={Colors.text} />
@@ -96,9 +99,9 @@ export default function TradeCreateScreen() {
 
           <View style={styles.completeBox}>
             <Text style={styles.helperText}>
-              Quando l&apos;altra persona ha davvero accettato lo scambio (di persona o confermando dal suo dispositivo),
-              premi qui per aggiornare la tua collezione: la carta offerta verrà tolta e quella richiesta (se
-              specificata) verrà aggiunta. Nessuna verifica automatica: tocca a te confermarlo onestamente.
+              Quando l&apos;altra persona ha davvero ricevuto queste carte, premi qui per togliere{' '}
+              {selectedCards.length > 1 ? 'tutte le carte cedute' : 'la carta ceduta'} dalla tua collezione. Nessuna
+              verifica automatica: tocca a te confermarlo onestamente.
             </Text>
             <PrimaryButton
               label={completed ? 'Collezione aggiornata ✓' : 'Segna scambio come completato'}
@@ -115,104 +118,61 @@ export default function TradeCreateScreen() {
 
   return (
     <ScreenContainer>
-      <FlatList
-        data={filteredRequestCards}
-        keyExtractor={(entry) => `${entry.card.id}-${entry.rarity}`}
-        ListHeaderComponent={
-          <View>
-            <Text style={styles.sectionTitle}>1. Carta da offrire</Text>
-            <Text style={styles.helperText}>Scegli una carta dalla tua collezione (obbligatorio).</Text>
-            {ownedCards.length === 0 ? (
-              <Text style={styles.emptyText}>Non possiedi ancora nessuna carta da offrire.</Text>
-            ) : (
-              <FlatList
-                data={ownedCards}
-                keyExtractor={(item) => `${item.id}-${item.setId}`}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.horizontalList}
-                renderItem={({ item }) => (
-                  <Pressable
-                    onPress={() => setOffer(item)}
-                    style={[styles.pickerCard, offer?.id === item.id && offer?.setId === item.setId && styles.pickerCardSelected]}>
-                    <CardImage cardId={item.id} remoteUrl={item.imageUrlSmall} style={styles.pickerImage} />
-                    <Text style={styles.pickerName} numberOfLines={2}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.pickerMeta}>
-                      {RARITY_LABELS[item.rarity]} · x{item.quantity}
-                    </Text>
-                  </Pressable>
-                )}
-              />
-            )}
+      <View style={styles.header}>
+        <Text variant="heading" style={styles.sectionTitle}>
+          Carte da cedere
+        </Text>
+        <Text style={styles.helperText}>
+          Scegli una o più carte dalla tua collezione da dare all&apos;amico. Cosa ricevi in cambio si decide di
+          persona.
+        </Text>
+        {ownedCards.length === 0 ? (
+          <Text style={styles.emptyText}>Non possiedi ancora nessuna carta da cedere.</Text>
+        ) : (
+          <MultiCardPicker cards={ownedCards} selectedKeys={selectedKeys} onToggle={toggleSelected} keyOf={keyOf} />
+        )}
 
-            <Text style={[styles.sectionTitle, styles.sectionSpacing]}>2. Carta richiesta (opzionale)</Text>
-            <Text style={styles.helperText}>Indica una carta specifica che vorresti in cambio, se ne hai una in mente.</Text>
-            <View style={styles.setChipRow}>
-              {SET_CONFIGS.map((s) => (
-                <Pressable
-                  key={s.setId}
-                  onPress={() => setRequestSetId(s.setId)}
-                  style={[styles.setChip, requestSetId === s.setId && styles.setChipSelected]}>
-                  <Text style={[styles.setChipText, requestSetId === s.setId && styles.setChipTextSelected]}>
-                    {s.setCode}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <TextInput
-              placeholder="Cerca per nome…"
-              placeholderTextColor={Colors.textMuted}
-              value={requestQuery}
-              onChangeText={setRequestQuery}
-              style={styles.textInput}
-            />
-            {request && (
-              <Pressable onPress={() => setRequest(null)} style={styles.clearRequest}>
-                <Text style={styles.clearRequestText}>Richiesta: {request.card.name} · rimuovi</Text>
-              </Pressable>
-            )}
-          </View>
-        }
-        numColumns={3}
-        columnWrapperStyle={styles.requestRow}
-        renderItem={({ item }) => {
-          const selected = request?.card.id === item.card.id;
-          return (
-            <Pressable onPress={() => setRequest(item)} style={[styles.requestTile, selected && styles.pickerCardSelected]}>
-              <CardImage cardId={item.card.id} remoteUrl={item.card.imageUrlSmall} style={styles.requestImage} />
-              <Text style={styles.pickerName} numberOfLines={2}>
-                {item.card.name}
+        {selectedCards.length > 0 && (
+          <View style={styles.selectedSummary}>
+            <Text style={styles.selectedSummaryTitle}>
+              {selectedCards.length} cart{selectedCards.length > 1 ? 'e' : 'a'} selezionat
+              {selectedCards.length > 1 ? 'e' : 'a'}:
+            </Text>
+            {selectedCards.map((c) => (
+              <Text key={keyOf(c)} style={styles.selectedSummaryItem}>
+                {c.name} · {RARITY_LABELS[c.rarity]}
               </Text>
-            </Pressable>
-          );
-        }}
-        ListFooterComponent={
-          <View style={styles.footer}>
-            <Text style={[styles.sectionTitle, styles.sectionSpacing]}>3. Nota (opzionale)</Text>
-            <TextInput
-              placeholder="Es. disponibile solo nel weekend…"
-              placeholderTextColor={Colors.textMuted}
-              value={note}
-              onChangeText={setNote}
-              style={[styles.textInput, styles.noteInput]}
-              multiline
-            />
-            <PrimaryButton label="Genera codice/QR" onPress={handleGenerate} disabled={!offer} />
+            ))}
           </View>
-        }
-      />
+        )}
+      </View>
+
+      <View style={styles.footer}>
+        <Text variant="heading" style={[styles.sectionTitle, styles.sectionSpacing]}>
+          Nota (opzionale)
+        </Text>
+        <TextInput
+          placeholder="Es. disponibile solo nel weekend…"
+          placeholderTextColor={Colors.textMuted}
+          value={note}
+          onChangeText={setNote}
+          style={styles.textInput}
+          multiline
+        />
+        <PrimaryButton label="Genera codice/QR" onPress={handleGenerate} disabled={selectedCards.length === 0} />
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  header: {
+    marginTop: Spacing.lg,
+  },
   sectionTitle: {
     color: Colors.text,
     fontSize: 16,
     fontWeight: '700',
-    marginTop: Spacing.lg,
   },
   sectionSpacing: {
     marginTop: Spacing.xl,
@@ -227,58 +187,22 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontStyle: 'italic',
   },
-  horizontalList: {
-    gap: Spacing.md,
-  },
-  pickerCard: {
-    width: 96,
-    backgroundColor: Colors.surface,
+  selectedSummary: {
+    marginTop: Spacing.md,
+    backgroundColor: Colors.surfaceElevated,
     borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.xs,
+    padding: Spacing.md,
     gap: 2,
   },
-  pickerCardSelected: {
-    borderColor: Colors.primary,
-  },
-  pickerImage: {
-    width: '100%',
-    aspectRatio: 59 / 86,
-    borderRadius: 6,
-  },
-  pickerName: {
+  selectedSummaryTitle: {
     color: Colors.text,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  pickerMeta: {
-    color: Colors.textMuted,
-    fontSize: 10,
-  },
-  setChipRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  setChip: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.pill,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-  },
-  setChipSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.surfaceElevated,
-  },
-  setChipText: {
-    color: Colors.textMuted,
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 12,
+    marginBottom: 2,
   },
-  setChipTextSelected: {
-    color: Colors.primary,
+  selectedSummaryItem: {
+    color: Colors.textMuted,
+    fontSize: 12,
   },
   textInput: {
     backgroundColor: Colors.surface,
@@ -288,38 +212,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     color: Colors.text,
+    marginTop: Spacing.sm,
     marginBottom: Spacing.md,
-  },
-  noteInput: {
     minHeight: 60,
     textAlignVertical: 'top',
   },
-  clearRequest: {
-    marginBottom: Spacing.md,
-  },
-  clearRequestText: {
-    color: Colors.primary,
-    fontSize: 12,
-  },
-  requestRow: {
-    gap: Spacing.md,
-  },
-  requestTile: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.xs,
-    marginBottom: Spacing.md,
-    gap: 2,
-  },
-  requestImage: {
-    width: '100%',
-    aspectRatio: 59 / 86,
-    borderRadius: 6,
-  },
   footer: {
+    marginTop: Spacing.lg,
     paddingBottom: Spacing.xxl,
   },
   resultWrapper: {
